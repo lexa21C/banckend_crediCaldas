@@ -7,7 +7,7 @@ from gestion.serializers.cuotaDetalles import CuotaDetalleSerializer
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from datetime import datetime
-from rest_framework.decorators import action
+
 # ViewSet para Cuota
 class CuotaViewSet(viewsets.ModelViewSet):
     queryset = Cuota.objects.all()
@@ -30,23 +30,20 @@ class CuotaViewSet(viewsets.ModelViewSet):
             )
 
         data = request.data
-        print(data)
-        print(instance.valor_cancelado)
+
         # Obtener el valor cancelado y calcular el excedente
         valor_cancelado = int(data.get('valor_cancelado', instance.valor_cancelado))
-        print(valor_cancelado)
         valor_actual = int(instance.valor)
-        print(valor_actual)
 
         abono = valor_cancelado
 
         excedente = valor_cancelado - valor_actual if valor_cancelado > valor_actual else 0
- 
+
         # Actualizar la cuota actual
         if excedente > 0:
 
 
-            
+
 
             print(f"Después de guardar: valor_cancelado = {instance.valor_cancelado}")
             cuotas_pendientes = Cuota.objects.filter(
@@ -74,6 +71,19 @@ class CuotaViewSet(viewsets.ModelViewSet):
                     excedente = 0  # Agotamos el excedente
 
                 cuota.save()  # Guardar los cambios en la cuota
+            # else:
+            #     print("Excedente es 0")
+            #     print ('valor ante',valor_cancelado)
+            #     print('valor actual', valor_actual)
+            #     if valor_cancelado < valor_actual:
+            #         data['valor_cancelado'] = valor_cancelado
+            #         data['valor'] -= data['valor_cancelado']
+            #         print('actualiza')
+            #         print(data)
+            #     else:
+            #         print('else')
+            #         data['valor_cancelado'] = valor_cancelado
+
 
         if data['valor_cancelado'] < data['valor']:
 
@@ -81,28 +91,24 @@ class CuotaViewSet(viewsets.ModelViewSet):
                 print(data['valor'])
                 data['valor_cancelado'] += instance.valor_cancelado
                 data['valor'] -= valor_cancelado
-                print('pendiente')
-                print(data )
+
             else:
                 data['valor_cancelado'] = valor_cancelado
-                data['valor'] -= data['valor_cancelado']    
-                print('actualiza')  
-                print(data)    
+                data['valor'] -= data['valor_cancelado']
         else:
-            print('else') 
+            print('else')
             if instance.valor_cancelado > 0:
 
                 data['valor'] += instance.valor_cancelado
-                data['valor_cancelado'] = data['valor'] 
+                data['valor_cancelado'] = data['valor']
             else:
-                data['valor_cancelado'] = valor_actual 
+                data['valor_cancelado'] = valor_actual
 
         previous_state = instance.estado  # Estado antes de la actualización
 
         # Validar y actualizar el objeto usando el serializer
 
         serializer = self.get_serializer(instance, data=data, partial=partial)
-        print (serializer)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 
@@ -113,12 +119,10 @@ class CuotaViewSet(viewsets.ModelViewSet):
             credito.save()  # Guardar los cambios en el crédito
         credito = instance.credito  # Obtener el crédito asociado
         credito.saldo -= valor_cancelado
-        credito.num_cuotas_pagadas += 1 
+        credito.num_cuotas_pagadas += 1
         if credito.saldo == 0:
             credito.estado = 'cancelado'
-            #me  ayudas a verificar si todas las cuotas del credito esten 
         credito.save()  # Guardar los cambios en el crédito
-         
   # Guardar los cambios en el crédito
 
         # Actualizar el modelo Cobro
@@ -141,8 +145,8 @@ class CuotaViewSet(viewsets.ModelViewSet):
         """
         instance = self.get_object()
 
-        # # Verificar que el estado sea "pendiente"
-        # if instance.estado != 'pendiente':
+        # Verificar que el estado sea "pendiente"
+        # if instance.estado != 'activo':
         #     return Response(
         #         {"error": "Solo se pueden editar cuotas con estado pendiente."},
         #         status=status.HTTP_400_BAD_REQUEST
@@ -151,12 +155,13 @@ class CuotaViewSet(viewsets.ModelViewSet):
         data = request.data
 
 
+
         serializer = self.get_serializer(instance, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
+
     @action(detail=False, methods=['get'], url_path='saldo-dia')
     def saldo_dia(self, request):
         """

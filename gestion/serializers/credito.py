@@ -105,3 +105,25 @@ class CreditoSerializer(serializers.HyperlinkedModelSerializer):
             raise ValueError("No se encontró un objeto Cobro para actualizar.")
 
         return credito
+    def update(self, instance, validated_data):
+        """
+        Edita un crédito existente, eliminando las cuotas antiguas y generando nuevas.
+        """
+        # Actualizar los campos del crédito
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # Eliminar cuotas existentes
+        instance.cuotas.all().delete()
+
+        # Lista de festivos
+        festivos = [
+            instance.fecha_prestamo.replace(month=12, day=8),
+            instance.fecha_prestamo.replace(month=12, day=25),
+        ]
+
+        # Generar nuevas cuotas
+        self.generar_cuotas(instance, festivos)
+
+        return instance

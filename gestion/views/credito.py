@@ -34,17 +34,44 @@ class CreditoViewSet(viewsets.ModelViewSet):
         # Filtrar las cuotas con la fecha dada y estado activo o pendiente
         cuotas_filtradas = Cuota.objects.filter(
             Q(fecha_pago=fecha, estado='activo') | Q(estado='pendiente')
-        ).values_list('credito_id', flat=True)  # Obtener IDs de los créditos relacionados
+        )
 
         # Obtener los créditos relacionados
         creditos_filtrados = Credito.objects.filter(
-            id__in=cuotas_filtradas
+            id__in=cuotas_filtradas.values_list('credito_id', flat=True)
         ).distinct()
 
-        # Serializar los resultados con depth=3
+        # Crear la respuesta personalizada
         serializer = self.get_serializer(creditos_filtrados, many=True)
+        creditos_data = serializer.data
 
-        return Response(serializer.data)
+        # Modificar las cuotas en la respuesta para incluir todas las que cumplan la condición
+        for credito in creditos_data:
+            # Filtrar cuotas que corresponden al crédito actual
+            cuotas_relevantes = [
+                cuota for cuota in cuotas_filtradas
+                if cuota.credito_id == credito['id'] and cuota.fecha_pago == fecha and cuota.estado == 'activo'
+            ]
+            
+            # Si hay cuotas activas para el crédito, agregarlas a la respuesta
+            if cuotas_relevantes:
+                credito['cuotas'] = []
+                for cuota_relevante in cuotas_relevantes:
+                    credito['cuotas'].append({
+                        "id": cuota_relevante.id,
+                        "fecha_pago": cuota_relevante.fecha_pago,
+                        "valor": cuota_relevante.valor,
+                        "valor_cancelado": cuota_relevante.valor_cancelado,
+                        "fecha_pagada": cuota_relevante.fecha_pagada, 
+                        "estado": cuota_relevante.estado,
+                        "credito": cuota_relevante.credito.id,
+                        "num_cuotas": cuota_relevante.num_cuotas,
+                    })
+            else:
+                credito['cuotas'] = None
+
+        return Response(creditos_data)
+
 
     @action(detail=True, methods=['get'])
     def buscarCredito(self, request, pk=None):

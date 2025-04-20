@@ -10,6 +10,8 @@ from datetime import datetime
 
 # ViewSet para Cuota
 class CuotaViewSet(viewsets.ModelViewSet):
+
+
     queryset = Cuota.objects.all()
     serializer_class = CuotaSerializer
 
@@ -197,3 +199,102 @@ class CuotaViewSet(viewsets.ModelViewSet):
             {"fecha": fecha_param, "saldoDia": saldo_dia},
             status=status.HTTP_200_OK
         )
+
+def update(self, request, *args, **kwargs):
+    partial = kwargs.pop('partial', False)
+    instance = self.get_object()
+
+    if instance.estado == 'cancelado':
+        return Response(
+            {"error": "No se puede editar una cuota que ya está cancelada."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    data = request.data
+    valor_cancelado = int(data.get('valor_cancelado', instance.valor_cancelado))
+    valor_actual = int(instance.valor)
+    abono = valor_cancelado
+    excedente = valor_cancelado - valor_actual if valor_cancelado > valor_actual else 0
+
+    if excedente > 0:
+        cuotas_pendientes = Cuota.objects.filter(
+            credito=instance.credito,
+            estado='activo',
+            num_cuotas__gt=instance.num_cuotas
+        ).order_by('num_cuotas')
+
+        for cuota in cuotas_pendientes:
+            if excedente <= 0:
+                break
+
+            restante_cuota = cuota.valor - cuota.valor_cancelado
+
+            if excedente >= restante_cuota:
+                cuota.valor_cancelado = cuota.valor
+                cuota.fecha_pagada = data['fecha_pagada']
+                cuota.estado = 'cancelado'
+                excedente -= restante_cuota
+            else:
+                cuota.valor_cancelado += excedente
+                cuota.valor -= excedente
+                excedente = 0
+
+            cuota.save()
+
+    if data['valor_cancelado'] < data['valor']:
+        if instance.valor_cancelado > 0:
+            data['valor_cancelado'] += instance.valor_cancelado
+            data['valor'] -= valor_cancelado
+        else:
+            data['valor_cancelado'] = valor_cancelado
+            data['valor'] -= data['valor_cancelado']    
+    else:
+        if instance.valor_cancelado > 0:
+            data['valor'] += instance.valor_cancelado
+            data['valor_cancelado'] = data['valor'] 
+        else:
+            data['valor_cancelado'] = valor_actual 
+
+    previous_state = instance.estado
+
+    serializer = self.get_serializer(instance, data=data, partial=partial)
+    serializer.is_valid(raise_exception=True)
+    self.perform_update(serializer)
+
+    if previous_state != 'pendiente' and serializer.validated_data.get('estado') == 'pendiente':
+        credito = instance.credito
+        credito.cuotas_atrasadas += 1
+        credito.save()
+
+    credito = instance.credito
+    credito.saldo -= valor_cancelado
+    credito.num_cuotas_pagadas += 1 
+
+    # Verificar si el saldo es cero y cancelar todas las cuotas pendientes
+    if credito.saldo == 0:
+        credito.estado = 'cancelado'
+        # Obtener todas las cuotas del crédito
+        cuotas = Cuota.objects.filter(credito=credito)
+        # Usar la fecha de pago proporcionada o la actual si no está presente
+        fecha_pagada = data.get('fecha_pagada', datetime.now().date())
+        for cuota in cuotas:
+            if cuota.estado != 'cancelado':
+                cuota.estado = 'cancelado'
+                cuota.valor_cancelado = cuota.valor
+                cuota.fecha_pagada = fecha_pagada
+        # Actualizar todas las cuotas de una vez
+        Cuota.objects.bulk_update(cuotas, ['estado', 'valor_cancelado', 'fecha_pagada'])
+
+    credito.save()
+
+    try:
+        cobro = Cobro.objects.first()
+        if cobro:
+            cobro.capital_disponible += abono
+            cobro.capital_cancelado += abono
+            cobro.capital_prestado -= abono
+            cobro.save()
+    except Cobro.DoesNotExist:
+        raise ValueError("No se encontró un objeto Cobro para actualizar.")
+
+    return Response(serializer.data, status=status.HTTP_200_OK)

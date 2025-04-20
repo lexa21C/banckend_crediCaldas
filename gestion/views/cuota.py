@@ -117,6 +117,18 @@ class CuotaViewSet(viewsets.ModelViewSet):
         if credito.saldo == 0:
             credito.estado = 'cancelado'
             #me  ayudas a verificar si todas las cuotas del credito esten 
+            cuotas_impagas = Cuota.objects.filter(
+                credito=credito,
+                valor_cancelado=0
+            )
+        
+        # Actualizar en lote
+            fecha_pagada = data.get('fecha_pagada', datetime.now().date())
+            cuotas_impagas.update(
+                estado='cancelado',
+                valor_cancelado=F('valor'),  # Usar F() para mantener el valor original
+                fecha_pagada=fecha_pagada
+            )
         credito.save()  # Guardar los cambios en el crédito
          
   # Guardar los cambios en el crédito

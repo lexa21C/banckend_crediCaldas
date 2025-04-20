@@ -3,7 +3,7 @@ from gestion.models import Credito, Cuota, Cobro
 from datetime import timedelta
 from decimal import Decimal
 from gestion.serializers.getCreditos import CreditoDetailSerializer
-
+import holidays 
 class CreditoSerializer(serializers.HyperlinkedModelSerializer):
     cuotas = serializers.HyperlinkedRelatedField(
         many=True,
@@ -18,6 +18,14 @@ class CreditoSerializer(serializers.HyperlinkedModelSerializer):
             'forma_pago', 'numero_cuotas', 'estado', 'cuotas_atrasadas',
             'cuotas', 'num_cuotas_pagadas'
         ]
+
+    def obtener_festivos_colombia(self):
+        """
+        Retorna un conjunto con los días festivos de Colombia para el año especificado.
+        """
+        festivos_colombia = holidays.CO(years=2025)
+
+        return set(festivos_colombia.keys())  # Devuelve las fechas festivas en un conjunto
 
     def es_dia_valido(self, fecha, festivos):
         """
@@ -85,12 +93,8 @@ class CreditoSerializer(serializers.HyperlinkedModelSerializer):
         # Crear el objeto Crédito
         credito = Credito.objects.create(**validated_data)
 
-        # Lista de festivos (puedes obtenerla de una base de datos o API externa)
-        festivos = [
-            credito.fecha_prestamo.replace(month=12, day=8),
-            credito.fecha_prestamo.replace(month=12, day=25),
-        ]
-
+        
+        festivos = self.obtener_festivos_colombia()
         # Generar cuotas
         self.generar_cuotas(credito, festivos)
 
@@ -109,21 +113,19 @@ class CreditoSerializer(serializers.HyperlinkedModelSerializer):
         """
         Edita un crédito existente, eliminando las cuotas antiguas y generando nuevas.
         """
-        # Actualizar los campos del crédito
+        if 'prestamo' in validated_data and validated_data['prestamo'] != instance.prestamo:
+            nuevo_prestamo = int(validated_data['prestamo'] * 1.20)
+            validated_data['prestamo'] = nuevo_prestamo
+            validated_data['saldo'] = nuevo_prestamo
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        # Eliminar cuotas existentes
         instance.cuotas.all().delete()
 
-        # Lista de festivos
-        festivos = [
-            instance.fecha_prestamo.replace(month=12, day=8),
-            instance.fecha_prestamo.replace(month=12, day=25),
-        ]
-
-        # Generar nuevas cuotas
+        # Obtener festivos correctamente
+        festivos = self.obtener_festivos_colombia()
         self.generar_cuotas(instance, festivos)
 
         return instance
